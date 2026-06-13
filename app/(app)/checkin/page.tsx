@@ -29,25 +29,37 @@ export default function CheckinPage() {
   const [busy, setBusy] = useState(false);
   const [crisis, setCrisis] = useState(false);
 
-  async function runAction(id: string) {
+  // The deterministic template renders immediately so the user sees the
+  // check-in surface right away. The GenLayer tone/reason verdict streams
+  // in 30-120s later and refines the badges and template tone.
+  function runAction(id: string) {
     const a = ACTIONS.find(x => x.id === id);
     if (!a) return;
     setActive(id);
+    setTrigger(null);
+    setResponse(a.template(state.assistantTone));
+    if (!reviewer) return;
     setBusy(true);
     const recent = state.moodLogs.slice(-4);
-    if (!reviewer) { setBusy(false); return; }
-    const r = await reviewCheckin(reviewer, {
-      userHash: userHashFromAlias(state.alias),
-      riskLevel: state.lastWellnessReview?.riskLevel ?? "WATCH",
-      recentMoodAvg: avg(recent.map(l => l.mood)),
-      recentStressAvg: avg(recent.map(l => l.stress)),
-      missedGoals: state.commitments.filter(c => c.claimedCount < c.target).length,
-      preferredTone: state.assistantTone,
-      events: state.events
-    });
-    setTrigger({ tone: r.review.tone, reason: r.review.reason, prompt: r.review.checkinPrompt });
-    setResponse(a.template(r.review.tone));
-    setBusy(false);
+    (async () => {
+      try {
+        const r = await reviewCheckin(reviewer, {
+          userHash: userHashFromAlias(state.alias),
+          riskLevel: state.lastWellnessReview?.riskLevel ?? "WATCH",
+          recentMoodAvg: avg(recent.map(l => l.mood)),
+          recentStressAvg: avg(recent.map(l => l.stress)),
+          missedGoals: state.commitments.filter(c => c.claimedCount < c.target).length,
+          preferredTone: state.assistantTone,
+          events: state.events
+        });
+        setTrigger({ tone: r.review.tone, reason: r.review.reason, prompt: r.review.checkinPrompt });
+        setResponse(a.template(r.review.tone));
+      } catch {
+        // soft fail - template above already renders
+      } finally {
+        setBusy(false);
+      }
+    })();
   }
 
   function checkCrisis(text: string) {
@@ -72,8 +84,8 @@ export default function CheckinPage() {
           <Card key={a.id} className="flex flex-col gap-3">
             <span className="section-num">{a.id}</span>
             <h3 className="font-head text-lg">{a.title}</h3>
-            <Button variant={active === a.id ? "primary" : "secondary"} className="mt-auto" onClick={() => { if (!checkCrisis("")) runAction(a.id); }} disabled={busy}>
-              {busy && active === a.id ? "Reviewing..." : "Run"}
+            <Button variant={active === a.id ? "primary" : "secondary"} className="mt-auto" onClick={() => { if (!checkCrisis("")) runAction(a.id); }}>
+              Run
             </Button>
           </Card>
         ))}
@@ -82,12 +94,17 @@ export default function CheckinPage() {
       {response && (
         <Card className="mt-6">
           <SectionLabel number="06 /" label="Check-in reflection" />
-          {trigger && (
+          {trigger ? (
             <div className="flex flex-wrap gap-2 mt-3">
               <Badge tone="accent">tone: {trigger.tone}</Badge>
               <Badge tone="info">{trigger.reason}</Badge>
             </div>
-          )}
+          ) : busy ? (
+            <p className="text-xs text-muted mt-3 flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
+              GenLayer is shaping the tone of this reflection - ~1 minute.
+            </p>
+          ) : null}
           <pre className="whitespace-pre-wrap text-sm mt-4 font-body">{response}</pre>
           <p className="text-xs text-muted mt-4">{ASSISTANT_DISCLAIMER}</p>
         </Card>

@@ -17,32 +17,48 @@ export default function MoodPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ mood: 6, stress: 5, anxiety: 4, energy: 6, sleep: 6, note: "", tags: [] as string[] });
-  const [busy, setBusy] = useState(false);
   const [crisis, setCrisis] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
   const [lastReview, setLastReview] = useState(state.lastWellnessReview ?? null);
 
   function toggleTag(t: string) {
     setForm(f => ({ ...f, tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t] }));
   }
 
-  async function submit() {
+  // The local save is instant; the GenLayer review is kicked off in the
+  // background because Studionet consensus takes 30-120s and blocking the
+  // form on it makes the UI feel broken. Submitting again while a prior
+  // review is still in flight is fine - the local log saves immediately
+  // and the latest verdict to land wins.
+  function submit() {
     if (detectCrisisLanguage(form.note)) { setCrisis(true); return; }
     setError(null);
-    setBusy(true);
     const log: MoodLog = { id: shortId("mood"), ts: Date.now(), ...form };
     const logs = [...state.moodLogs, log];
     const events = pushEvent(state.events, makeEvent("MOOD_SIGNAL_CREATED", "local private signal saved", { tone: "info" }));
     setState(s => ({ ...s, moodLogs: logs, events }));
-    try {
-      if (!reviewer) throw new Error("not ready");
-      const { review, events: ev2 } = await reviewWellness(reviewer, { alias: state.alias, logs, commitments: state.commitments, permissions: state.permissions, events });
-      setLastReview(review);
-      setState(s => ({ ...s, lastWellnessReview: review, events: ev2 }));
-      setForm({ mood: 6, stress: 5, anxiety: 4, energy: 6, sleep: 6, note: "", tags: [] });
-    } catch (e: any) {
-      setError("Could not reach the review service. Your log was saved on this device.");
-    } finally { setBusy(false); }
+    setForm({ mood: 6, stress: 5, anxiety: 4, energy: 6, sleep: 6, note: "", tags: [] });
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 2500);
+
+    if (!reviewer) {
+      setError("Not signed in. Your log was saved on this device.");
+      return;
+    }
+    setReviewPending(true);
+    (async () => {
+      try {
+        const { review, events: ev2 } = await reviewWellness(reviewer, { alias: state.alias, logs, commitments: state.commitments, permissions: state.permissions, events });
+        setLastReview(review);
+        setState(s => ({ ...s, lastWellnessReview: review, events: ev2 }));
+      } catch (e: any) {
+        setError("Reflection could not be generated this time. Your log is safe on this device.");
+      } finally {
+        setReviewPending(false);
+      }
+    })();
   }
 
   const chartData = state.moodLogs.slice(-12).map((l, i) => ({ i: i + 1, mood: l.mood, stress: l.stress, sleep: l.sleep, energy: l.energy }));
@@ -80,12 +96,19 @@ export default function MoodPage() {
               ))}
             </div>
           </div>
-          <Button className="mt-6" onClick={submit} disabled={busy}>{busy ? "Saving and reflecting..." : "Save and reflect"}</Button>
+          <Button className="mt-6" onClick={submit}>Save and reflect</Button>
+          {savedFlash && <p className="text-xs text-sage mt-3">Saved. Reflection is being prepared in the background.</p>}
           {error && <p className="text-xs text-danger mt-3">{error}</p>}
         </Card>
 
         <Card>
           <SectionLabel number="02 /" label="Latest reflection" />
+          {reviewPending && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted">
+              <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
+              Reflecting on your signals - usually ~1 minute. You can keep using the app.
+            </div>
+          )}
           {lastReview ? (
             <div className="mt-3">
               <div className="flex justify-between items-center">

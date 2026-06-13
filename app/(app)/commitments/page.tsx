@@ -15,7 +15,7 @@ export default function CommitmentsPage() {
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ title: "", category: "journaling", frequency: "weekly" as const, target: 3, privacy: "GENLAYER_REVIEW_ONLY" as PermissionLevel, evidenceType: "checklist" as const });
   const [evidence, setEvidence] = useState<Record<string, { summary: string; checklist: boolean }>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+  const [pendingReview, setPendingReview] = useState<Record<string, boolean>>({});
 
   function create() {
     if (!form.title.trim()) return;
@@ -33,24 +33,39 @@ export default function CommitmentsPage() {
     setForm({ ...form, title: "" });
   }
 
-  async function submitEvidence(c: Commitment) {
-    setBusy(c.id);
+  // Local progress increments instantly. The GenLayer review runs in the
+  // background (Studionet consensus is 30-120s) - we surface a "reviewing"
+  // pill on the card and swap in the verdict when it lands.
+  function submitEvidence(c: Commitment) {
     const e = evidence[c.id] || { summary: "", checklist: false };
-    try {
-      if (!reviewer) throw new Error("not ready");
-      const { review, events } = await reviewGoal(reviewer, {
-        userHash: userHashFromAlias(state.alias),
-        goalTitle: c.title, goalCategory: c.category,
-        targetCount: c.target, claimedCount: Math.min(c.target, c.claimedCount + 1),
-        evidenceSummary: e.summary, checklistCompleted: e.checklist,
-        events: state.events
-      });
-      setState(s => ({
-        ...s,
-        commitments: s.commitments.map(x => x.id === c.id ? { ...x, claimedCount: Math.min(c.target, x.claimedCount + 1), evidenceSummary: e.summary, checklistCompleted: e.checklist, lastReview: review } : x),
-        events
-      }));
-    } finally { setBusy(null); }
+    const newClaimed = Math.min(c.target, c.claimedCount + 1);
+    setState(s => ({
+      ...s,
+      commitments: s.commitments.map(x => x.id === c.id ? { ...x, claimedCount: newClaimed, evidenceSummary: e.summary, checklistCompleted: e.checklist } : x),
+      events: pushEvent(s.events, makeEvent("GOAL_EVIDENCE_SUBMITTED", `evidence saved for "${c.title}"`, { tone: "info" }))
+    }));
+    if (!reviewer) return;
+    setPendingReview(p => ({ ...p, [c.id]: true }));
+    (async () => {
+      try {
+        const { review, events } = await reviewGoal(reviewer, {
+          userHash: userHashFromAlias(state.alias),
+          goalTitle: c.title, goalCategory: c.category,
+          targetCount: c.target, claimedCount: newClaimed,
+          evidenceSummary: e.summary, checklistCompleted: e.checklist,
+          events: state.events
+        });
+        setState(s => ({
+          ...s,
+          commitments: s.commitments.map(x => x.id === c.id ? { ...x, lastReview: review } : x),
+          events
+        }));
+      } catch {
+        // soft fail - progress is already saved locally
+      } finally {
+        setPendingReview(p => ({ ...p, [c.id]: false }));
+      }
+    })();
   }
 
   return (
@@ -118,7 +133,13 @@ export default function CommitmentsPage() {
                   <input type="checkbox" className="w-auto" checked={e.checklist} onChange={ev => setEvidence({ ...evidence, [c.id]: { ...e, checklist: ev.target.checked } })} />
                   <span>Checklist completed</span>
                 </label>
-                <Button onClick={() => submitEvidence(c)} disabled={busy === c.id}>{busy === c.id ? "Submitting..." : "Submit evidence for GenLayer review"}</Button>
+                <Button onClick={() => submitEvidence(c)}>Submit evidence for GenLayer review</Button>
+                {pendingReview[c.id] && (
+                  <p className="text-xs text-muted flex items-center gap-2">
+                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
+                    GenLayer is reviewing this - usually ~1 minute.
+                  </p>
+                )}
               </div>
 
               {c.lastReview && (

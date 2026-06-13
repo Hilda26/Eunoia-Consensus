@@ -14,33 +14,44 @@ export default function ResearchPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [] as string[], revocable: true });
-  const [busy, setBusy] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   function toggleField(f: string) {
     setForm(s => ({ ...s, dataRequested: s.dataRequested.includes(f) ? s.dataRequested.filter(x => x !== f) : [...s.dataRequested, f] }));
   }
 
-  async function submit() {
-    if (!form.title.trim() || !form.dataRequested.length) return;
-    setBusy(true);
-    try {
-      if (!reviewer) throw new Error("not ready");
-      const { review, events } = await reviewConsent(reviewer, {
-        title: form.title, requestingEntity: form.requestingEntity,
-        dataRequested: form.dataRequested, dataNotRequested: NEVER_FIELDS,
-        durationDays: form.durationDays, revocable: form.revocable,
-        events: state.events
-      });
-      const req: ConsentRequest = {
-        id: shortId("cns"), ts: Date.now(),
-        title: form.title, requestingEntity: form.requestingEntity,
-        dataRequested: form.dataRequested, dataNotRequested: NEVER_FIELDS,
-        durationDays: form.durationDays, revocable: form.revocable,
-        review, active: review.status === "CLEAR"
-      };
-      setState(s => ({ ...s, consents: [req, ...s.consents], events }));
-      setForm({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [], revocable: true });
-    } finally { setBusy(false); }
+  function submit() {
+    if (!form.title.trim() || !form.dataRequested.length || !reviewer) return;
+    const snapshot = { ...form };
+    const req: ConsentRequest = {
+      id: shortId("cns"), ts: Date.now(),
+      title: snapshot.title, requestingEntity: snapshot.requestingEntity,
+      dataRequested: snapshot.dataRequested, dataNotRequested: NEVER_FIELDS,
+      durationDays: snapshot.durationDays, revocable: snapshot.revocable,
+      active: false
+    };
+    setState(s => ({ ...s, consents: [req, ...s.consents] }));
+    setForm({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [], revocable: true });
+    setPendingIds(p => new Set(p).add(req.id));
+    (async () => {
+      try {
+        const { review, events } = await reviewConsent(reviewer, {
+          title: snapshot.title, requestingEntity: snapshot.requestingEntity,
+          dataRequested: snapshot.dataRequested, dataNotRequested: NEVER_FIELDS,
+          durationDays: snapshot.durationDays, revocable: snapshot.revocable,
+          events: state.events
+        });
+        setState(s => ({
+          ...s,
+          consents: s.consents.map(c => c.id === req.id ? { ...c, review, active: review.status === "CLEAR" } : c),
+          events
+        }));
+      } catch {
+        // soft fail - request stays visible in pending state
+      } finally {
+        setPendingIds(p => { const n = new Set(p); n.delete(req.id); return n; });
+      }
+    })();
   }
 
   function revoke(id: string) {
@@ -75,7 +86,7 @@ export default function ResearchPage() {
           <div className="section-num mb-2">Never requested</div>
           <div className="flex flex-wrap gap-2">{NEVER_FIELDS.map(f => <Badge key={f} tone="ok">{f}</Badge>)}</div>
         </div>
-        <Button className="mt-6" onClick={submit} disabled={busy}>{busy ? "Reviewing..." : "Run consent review"}</Button>
+        <Button className="mt-6" onClick={submit}>Run consent review</Button>
       </Card>
 
       <Card className="mt-6">
@@ -85,7 +96,14 @@ export default function ResearchPage() {
             <div key={c.id} className="thin-border rounded-2xl p-4 bg-bg/50">
               <div className="flex justify-between items-center flex-wrap gap-2">
                 <span className="font-head text-base">{c.title}</span>
-                {c.review && <Badge tone={c.review.status === "CLEAR" ? "ok" : c.review.status === "REJECTED" ? "danger" : "warn"}>{c.review.status} · privacy {c.review.privacyRisk}</Badge>}
+                {c.review ? (
+                  <Badge tone={c.review.status === "CLEAR" ? "ok" : c.review.status === "REJECTED" ? "danger" : "warn"}>{c.review.status} · privacy {c.review.privacyRisk}</Badge>
+                ) : pendingIds.has(c.id) ? (
+                  <span className="text-xs text-muted flex items-center gap-2">
+                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
+                    review pending
+                  </span>
+                ) : null}
               </div>
               {c.review && <p className="text-sm mt-2">{c.review.requiredUserSummary}</p>}
               <p className="text-xs text-muted mt-2">{c.dataRequested.join(", ")} · {c.durationDays}d</p>

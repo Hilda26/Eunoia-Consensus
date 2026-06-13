@@ -21,23 +21,36 @@ export default function CirclesPage() {
   const { reviewer } = useReviewer();
   const [circle, setCircle] = useState(CIRCLES[0].id);
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
-  async function submit() {
-    if (!text.trim()) return;
-    setBusy(true);
-    try {
-      if (!reviewer) throw new Error("not ready");
-      const { review, events } = await reviewReply(reviewer, {
-        userHash: userHashFromAlias(state.alias),
-        circleAlias: state.alias,
-        replyText: text,
-        events: state.events
-      });
-      const reply: SupportReply = { id: shortId("reply"), ts: Date.now(), circle, alias: state.alias, text, review };
-      setState(s => ({ ...s, replies: [reply, ...s.replies], events }));
-      setText("");
-    } finally { setBusy(false); }
+  // The reply is posted locally and shown as "pending review" immediately;
+  // GenLayer classification streams in 30-120s later and swaps the pill.
+  function submit() {
+    if (!text.trim() || !reviewer) return;
+    const replyText = text;
+    const reply: SupportReply = { id: shortId("reply"), ts: Date.now(), circle, alias: state.alias, text: replyText };
+    setState(s => ({ ...s, replies: [reply, ...s.replies] }));
+    setText("");
+    setPendingIds(p => new Set(p).add(reply.id));
+    (async () => {
+      try {
+        const { review, events } = await reviewReply(reviewer, {
+          userHash: userHashFromAlias(state.alias),
+          circleAlias: state.alias,
+          replyText,
+          events: state.events
+        });
+        setState(s => ({
+          ...s,
+          replies: s.replies.map(r => r.id === reply.id ? { ...r, review } : r),
+          events
+        }));
+      } catch {
+        // soft fail - reply stays in pending state visually
+      } finally {
+        setPendingIds(p => { const n = new Set(p); n.delete(reply.id); return n; });
+      }
+    })();
   }
 
   return (
@@ -58,7 +71,7 @@ export default function CirclesPage() {
         <SectionLabel number="07 /" label={`Reply as ${state.alias}`} />
         <div className="mt-3 grid gap-3">
           <Field label="Reply text"><textarea rows={3} value={text} onChange={e => setText(e.target.value)} placeholder="Be supportive. No medical advice." /></Field>
-          <div><Button onClick={submit} disabled={busy}>{busy ? "Reviewing..." : "Send for GenLayer review"}</Button></div>
+          <div><Button onClick={submit}>Send for GenLayer review</Button></div>
         </div>
       </Card>
 
@@ -69,17 +82,24 @@ export default function CirclesPage() {
             <div key={r.id} className="thin-border rounded-2xl p-4 bg-bg/50">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-sm"><strong>{r.alias}</strong> in {CIRCLES.find(c => c.id === r.circle)?.name || r.circle}</span>
-                {r.review && (
+                {r.review ? (
                   <div className="flex gap-2">
                     <Badge tone={r.review.visible ? "ok" : "warn"}>{r.review.classification}</Badge>
                     {r.review.qualityBadge && <Badge tone="accent">support quality</Badge>}
                   </div>
-                )}
+                ) : pendingIds.has(r.id) ? (
+                  <span className="text-xs text-muted flex items-center gap-2">
+                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
+                    review pending
+                  </span>
+                ) : null}
               </div>
-              {r.review?.visible ? (
+              {!r.review ? (
+                <p className="text-sm mt-2">{r.text}</p>
+              ) : r.review.visible ? (
                 <p className="text-sm mt-2">{r.text}</p>
               ) : (
-                <p className="text-sm mt-2 text-muted italic">Reply hidden by GenLayer review: {r.review?.reasoning}</p>
+                <p className="text-sm mt-2 text-muted italic">Reply hidden by GenLayer review: {r.review.reasoning}</p>
               )}
             </div>
           ))}
