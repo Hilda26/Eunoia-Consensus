@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { ModuleHeader, Card, SectionLabel, Badge, Button } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { describeLevel, withheldList } from "@/lib/eunoia/privacyVault";
@@ -22,6 +23,7 @@ const LEVELS: PermissionLevel[] = ["PRIVATE", "GENLAYER_REVIEW_ONLY", "SUPPORT_C
 
 export default function VaultPage() {
   const { state, setState } = useStore();
+  const [flash, setFlash] = useState<string | null>(null);
 
   function setLevel(cat: DataCategory, level: PermissionLevel) {
     setState(s => ({
@@ -38,15 +40,47 @@ export default function VaultPage() {
     URL.revokeObjectURL(url);
   }
 
-  function deleteCategory(cat: DataCategory) {
+  function deleteCategory(cat: DataCategory, opts: { confirm?: boolean } = { confirm: true }) {
+    const label = CATEGORIES.find(c => c.id === cat)?.label || cat;
+    if (opts.confirm && typeof window !== "undefined" &&
+        !window.confirm(`Delete all local ${label.toLowerCase()}? This cannot be undone.`)) return;
     setState(s => {
       const next = { ...s };
-      if (cat === "MOOD_LOGS") next.moodLogs = [];
-      if (cat === "COMMITMENT_HISTORY") next.commitments = [];
-      if (cat === "RISK_REVIEWS") next.lastWellnessReview = undefined;
-      next.events = pushEvent(s.events, makeEvent("PRIVACY_VAULT", `${cat} cleared locally`, { tone: "warn" }));
+      switch (cat) {
+        case "MOOD_LOGS":
+          next.moodLogs = []; break;
+        case "JOURNAL_NOTES":
+          // notes live on mood logs - strip the note field from each one
+          next.moodLogs = s.moodLogs.map(l => ({ ...l, note: "" })); break;
+        case "SLEEP_DATA":
+          next.moodLogs = s.moodLogs.map(l => ({ ...l, sleep: 0 })); break;
+        case "ENERGY_LOGS":
+          next.moodLogs = s.moodLogs.map(l => ({ ...l, energy: 0 })); break;
+        case "AI_CHECKINS":
+          // checkins aren't persisted; clear any CHECKIN events
+          next.events = s.events.filter(e => e.type !== "CHECKIN_TRIGGERED"); break;
+        case "SUPPORT_ALIAS":
+          next.alias = "QuietOak"; next.replies = []; break;
+        case "RESEARCH_PERMISSIONS":
+          next.consents = []; break;
+        case "RISK_REVIEWS":
+          next.lastWellnessReview = undefined; break;
+        case "COMMITMENT_HISTORY":
+          next.commitments = []; break;
+      }
+      next.events = pushEvent(next.events, makeEvent("PRIVACY_VAULT", `${cat} cleared locally`, { tone: "warn" }));
       return next;
     });
+    setFlash(`${label} cleared from this device.`);
+    setTimeout(() => setFlash(null), 3000);
+  }
+
+  function deleteAll() {
+    if (typeof window !== "undefined" &&
+        !window.confirm("Delete ALL local data across every category? This cannot be undone.")) return;
+    CATEGORIES.forEach(c => deleteCategory(c.id, { confirm: false }));
+    setFlash("All local categories cleared from this device.");
+    setTimeout(() => setFlash(null), 3000);
   }
 
   return (
@@ -73,7 +107,13 @@ export default function VaultPage() {
               <p className="text-sm text-muted mt-2">{describeLevel(level)}</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {LEVELS.map(l => (
-                  <button key={l} className={`chip ${level === l ? "bg-aubergine text-bg border-aubergine" : ""}`} onClick={() => setLevel(c.id, l)}>{l}</button>
+                  <button
+                    key={l}
+                    className={`chip ${level === l ? "!bg-aubergine !text-bg !border-aubergine" : ""}`}
+                    onClick={() => setLevel(c.id, l)}
+                  >
+                    {l}
+                  </button>
                 ))}
               </div>
               <div className="mt-4">
@@ -88,8 +128,9 @@ export default function VaultPage() {
         <SectionLabel number="09 /" label="Export / delete" />
         <div className="flex gap-3 mt-3 flex-wrap">
           <Button onClick={exportData}>Export local data</Button>
-          <Button variant="danger" onClick={() => CATEGORIES.forEach(c => deleteCategory(c.id))}>Delete all categories</Button>
+          <Button variant="danger" onClick={deleteAll}>Delete all categories</Button>
         </div>
+        {flash && <p className="text-xs text-sage mt-3">{flash}</p>}
       </Card>
     </div>
   );
