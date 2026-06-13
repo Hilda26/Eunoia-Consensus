@@ -6,6 +6,7 @@
 
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
+import { TransactionStatus } from "genlayer-js/types";
 import type { GenLayerChain } from "genlayer-js/types";
 import type {
   SignalBundle, WellnessReview, GoalReview, ReplyReview, ConsentReview, CheckinReview
@@ -41,7 +42,11 @@ export function makeReviewer(provider: EipProvider) {
       args: [JSON.stringify(payload)],
       value: 0n
     });
-    const receipt = await client.waitForTransactionReceipt({ hash });
+    // Consensus can take 1-2 minutes on Studionet. Wait for ACCEPTED (verdict
+    // available) with a generous retry budget so the call does not time out.
+    const receipt = await client.waitForTransactionReceipt({
+      hash, status: TransactionStatus.ACCEPTED, retries: 50, interval: 3000
+    });
     return parseLeaderResult(receipt);
   }
 
@@ -64,20 +69,33 @@ function parseLeaderResult(receipt: any): any {
   const lr = Array.isArray(leaders) ? leaders[0] : leaders;
   if (!lr) throw new Error("Studionet did not return a leader receipt");
   if (lr.error) throw new Error(`Studionet review failed: ${lr.error}`);
-  const raw = lr.result;
-  if (typeof raw === "string") {
-    try { return JSON.parse(raw); } catch { /* fall through */ }
-    if (raw.startsWith("0x")) {
+
+  // genlayer-js v1 decodes the contract return value into a calldata envelope:
+  //   { status: "return", payload: { readable: "<json string>", raw: ... } }
+  // The contract returns a JSON string, so `readable` holds it (sometimes
+  // double-encoded). Unwrap the envelope, then JSON.parse until we get an object.
+  let raw: any = lr.result;
+  if (raw && typeof raw === "object" && "payload" in raw) {
+    const p = raw.payload;
+    raw = (p && typeof p === "object") ? (p.readable ?? p.raw ?? p) : p;
+  }
+
+  let v: any = raw;
+  for (let i = 0; i < 3 && typeof v === "string"; i++) {
+    const s = v.trim();
+    try { v = JSON.parse(s); continue; } catch { /* not json yet */ }
+    if (s.startsWith("0x")) {
       try {
-        const bytes = hexToBytes(raw);
-        const text = new TextDecoder().decode(bytes);
+        const text = new TextDecoder().decode(hexToBytes(s));
         const idx = text.indexOf("{");
-        if (idx >= 0) return JSON.parse(text.slice(idx));
+        v = idx >= 0 ? text.slice(idx) : text;
+        continue;
       } catch { /* fall through */ }
     }
-    return { raw };
+    break;
   }
-  return raw;
+  if (v && typeof v === "object") return v;
+  throw new Error("Studionet returned an unparseable result");
 }
 
 function hexToBytes(hex: string): Uint8Array {

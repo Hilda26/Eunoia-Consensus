@@ -2,7 +2,10 @@ import type { MoodLog, Commitment, DataCategory, PermissionLevel, SignalBundle }
 import { hashStable, userHashFromAlias, avg } from "@/lib/utils/format";
 import { withheldList, isAllowedForReview } from "@/lib/eunoia/privacyVault";
 
-function take(arr: MoodLog[], n: number) { return arr.slice(0, n).reverse(); }
+// moodLogs is stored oldest-first (new entries appended). Take the most
+// recent n, keeping chronological (oldest -> newest) order so GenLayer reads
+// the trend in the right direction.
+function take(arr: MoodLog[], n: number) { return arr.slice(-n); }
 
 function sentimentFromNotes(logs: MoodLog[]): string {
   if (!logs.length) return "neutral";
