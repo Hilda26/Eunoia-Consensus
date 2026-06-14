@@ -2,6 +2,9 @@
 
 **Private wellness accountability, powered by AI consensus.**
 
+Live demo: https://eunoia-consensus.vercel.app
+
+
 Eunoia is a GenLayer-native private wellness accountability platform. It uses real GenLayer Studionet consensus to review subjective wellness events: mood signals, goal evidence, support-circle replies, research consent requests, and AI check-in triggers.
 
 ## What Eunoia is
