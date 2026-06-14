@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { Logo, LogoMark } from "@/components/ui/Logo";
 
 const NAV = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard },
@@ -64,7 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             />
             <aside className="fixed left-0 top-0 z-50 h-full w-72 bg-bg border-r border-line p-5 flex flex-col gap-1 md:hidden">
               <div className="flex items-center justify-between mb-4">
-                <span className="font-head text-2xl px-2">Eunoia</span>
+                <Logo size={28} className="text-2xl px-2" />
                 <button
                   onClick={() => setDrawerOpen(false)}
                   className="p-2 rounded-full hover:bg-panel"
@@ -92,7 +93,9 @@ function NavList({
 }: { pathname: string | null; pending: string | null; onClick: (href: string) => void }) {
   return (
     <>
-      <Link href="/" className="font-head text-2xl mb-6 px-2 hidden md:block">Eunoia</Link>
+      <Link href="/" className="mb-6 px-2 hidden md:inline-flex">
+        <Logo size={28} className="text-2xl" />
+      </Link>
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = pathname?.startsWith(href);
         const isPending = pending === href;
@@ -129,7 +132,7 @@ function Topbar({ onMenu }: { onMenu: () => void }) {
       >
         <Menu size={18} />
       </button>
-      <span className="font-head text-sm">Eunoia</span>
+      <Logo size={20} className="text-sm" />
       <span className="chip hidden sm:inline-flex">Private session</span>
       <span className="chip hidden sm:inline-flex">Raw notes stay on this device</span>
       <UserMenu />

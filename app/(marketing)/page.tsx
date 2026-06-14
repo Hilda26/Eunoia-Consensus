@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { Button, Card, Badge, SectionLabel } from "@/components/ui/Primitives";
+import { Logo } from "@/components/ui/Logo";
 
 export default function Landing() {
   const { ready, authenticated, login } = usePrivy();
@@ -16,7 +17,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-bg text-ink">
       <header className="flex items-center justify-between px-8 py-5 border-b border-line">
-        <span className="font-head text-2xl">Eunoia</span>
+        <Logo size={32} className="text-2xl" />
         <nav className="flex items-center gap-4 text-sm">
           <Link href="/vault" className="text-muted hover:text-ink">Privacy</Link>
           <Button onClick={handleEnter} disabled={!ready}>{authenticated ? "Enter Eunoia" : "Sign in"}</Button>
