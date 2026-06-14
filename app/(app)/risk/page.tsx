@@ -6,6 +6,7 @@ import { avg } from "@/lib/utils/format";
 import { riskTone } from "@/lib/genlayer/consensusMapper";
 import { reviewWellness } from "@/lib/eunoia/agentCoordinator";
 import { useState } from "react";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const RECOMMENDED = ["5-minute breathing reset", "protect sleep window", "reduce one non-urgent task", "message support circle", "prepare therapy notes"];
 
@@ -13,6 +14,7 @@ export default function RiskPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const recent = state.moodLogs.slice(-4);
   const moodAvg = avg(recent.map(l => l.mood));
   const stressAvg = avg(recent.map(l => l.stress));
@@ -21,11 +23,15 @@ export default function RiskPage() {
   const review = state.lastWellnessReview;
 
   async function refresh() {
+    setError(null);
+    if (!reviewer) { setError("Not signed in - reload the page and sign in."); return; }
+    if (!state.moodLogs.length) { setError("Log a mood entry first - the indicator needs at least one signal."); return; }
     setBusy(true);
     try {
-      if (!reviewer) throw new Error("not ready");
       const { review, events } = await reviewWellness(reviewer, { alias: state.alias, logs: state.moodLogs, commitments: state.commitments, permissions: state.permissions, events: state.events });
       setState(s => ({ ...s, lastWellnessReview: review, events }));
+    } catch (e: any) {
+      setError("Could not refresh the indicator this time. Your latest signals are safe on this device.");
     } finally { setBusy(false); }
   }
 
@@ -40,7 +46,9 @@ export default function RiskPage() {
             <span className="font-head text-6xl">{review?.riskLevel ?? "STEADY"}</span>
             <Badge tone={riskTone(review?.riskLevel ?? "STEADY")}>score {review?.score ?? 0}</Badge>
             <p className="text-xs text-muted">Your wellness risk indicator is {review?.riskLevel?.toLowerCase() ?? "steady"}.</p>
-            <Button onClick={refresh} disabled={busy}>{busy ? "Reviewing..." : "Refresh from latest signals"}</Button>
+            <Button onClick={refresh} disabled={busy}>Refresh from latest signals</Button>
+            {busy && <PendingPulse label="Refreshing your indicator" />}
+            {error && <p className="text-xs text-danger">{error}</p>}
           </div>
         </Card>
 

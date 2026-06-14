@@ -3,9 +3,11 @@ import React from "react";
 import { useStore } from "@/hooks/useStore";
 import { fmtAgo } from "@/lib/utils/dates";
 import { cn } from "@/lib/utils/cn";
+import { explorerTxUrl, shortHash } from "@/lib/utils/explorer";
 import type { EunoiaEvent, EunoiaEventType } from "@/types";
 import {
   Sparkles, Shield, Leaf, MessageCircle, Target, HeartHandshake, FileCheck, AlertCircle,
+  ExternalLink,
   type LucideIcon
 } from "lucide-react";
 
@@ -53,6 +55,17 @@ export function RecentActivity({ limit = 8, className }: { limit?: number; class
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm">{meta.label(e)}</p>
+              {e.txHash && (
+                <a
+                  href={explorerTxUrl(e.txHash)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-aubergine hover:underline inline-flex items-center gap-1 mt-1"
+                  title={e.txHash}
+                >
+                  {shortHash(e.txHash)} <ExternalLink size={11} />
+                </a>
+              )}
             </div>
             <span className="text-xs text-muted shrink-0">{fmtAgo(e.ts)}</span>
           </li>

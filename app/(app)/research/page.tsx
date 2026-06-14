@@ -16,13 +16,17 @@ export default function ResearchPage() {
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [] as string[], revocable: true });
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [formError, setFormError] = useState<string | null>(null);
 
   function toggleField(f: string) {
     setForm(s => ({ ...s, dataRequested: s.dataRequested.includes(f) ? s.dataRequested.filter(x => x !== f) : [...s.dataRequested, f] }));
   }
 
   function submit() {
-    if (!form.title.trim() || !form.dataRequested.length || !reviewer) return;
+    setFormError(null);
+    if (!form.title.trim()) { setFormError("Add a title for this request."); return; }
+    if (!form.dataRequested.length) { setFormError("Pick at least one data field to request."); return; }
+    if (!reviewer) { setFormError("Not signed in - reload the page and sign in."); return; }
     const snapshot = { ...form };
     const req: ConsentRequest = {
       id: shortId("cns"), ts: Date.now(),
@@ -88,6 +92,7 @@ export default function ResearchPage() {
           <div className="flex flex-wrap gap-2">{NEVER_FIELDS.map(f => <Badge key={f} tone="ok">{f}</Badge>)}</div>
         </div>
         <Button className="mt-6" onClick={submit}>Run consent review</Button>
+        {formError && <p className="text-xs text-danger mt-3">{formError}</p>}
       </Card>
 
       <Card className="mt-6">

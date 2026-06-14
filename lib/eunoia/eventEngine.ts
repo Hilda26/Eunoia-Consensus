@@ -4,7 +4,7 @@ import { shortId } from "@/lib/utils/format";
 export function makeEvent(
   type: EunoiaEventType,
   label: string,
-  opts?: { detail?: string; tone?: EunoiaEvent["tone"] }
+  opts?: { detail?: string; tone?: EunoiaEvent["tone"]; txHash?: string }
 ): EunoiaEvent {
   return {
     id: shortId("evt"),
@@ -12,7 +12,8 @@ export function makeEvent(
     type,
     label,
     detail: opts?.detail,
-    tone: opts?.tone || "info"
+    tone: opts?.tone || "info",
+    txHash: opts?.txHash
   };
 }
 

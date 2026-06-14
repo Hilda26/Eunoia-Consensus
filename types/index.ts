@@ -143,6 +143,9 @@ export interface EunoiaEvent {
   label: string;
   detail?: string;
   tone?: "info" | "ok" | "warn" | "danger" | "accent";
+  // Set when this event corresponds to a confirmed Studionet tx, so the
+  // recent-activity row can link out to the GenLayer Studio explorer.
+  txHash?: string;
 }
 
 export interface SignalBundle {

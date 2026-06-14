@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef, useState } from "react";
 import { ModuleHeader, Card, SectionLabel, Field, Button, Badge } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer, useWalletAddress } from "@/hooks/useReviewer";
@@ -11,6 +12,18 @@ export default function SettingsPage() {
   const { status } = useReviewer();
   const address = useWalletAddress();
   const { user, logout } = usePrivy();
+
+  // Profile changes are auto-persisted by useStore on every keystroke; the
+  // flash gives the user explicit visual confirmation so they don't keep
+  // looking for a Save button that does not exist.
+  const [saved, setSaved] = useState(false);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    setSaved(true);
+    const t = setTimeout(() => setSaved(false), 1800);
+    return () => clearTimeout(t);
+  }, [state.alias, state.assistantTone, state.privacyDefault]);
 
   function exportData() {
     const blob = new Blob([exportStateJson(state)], { type: "application/json" });
@@ -25,7 +38,12 @@ export default function SettingsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <SectionLabel number="01 /" label="Profile" />
+          <div className="flex items-center justify-between gap-2">
+            <SectionLabel number="01 /" label="Profile" />
+            <span className={`text-xs transition-opacity ${saved ? "opacity-100 text-sage" : "opacity-60 text-muted"}`}>
+              {saved ? "Saving on this device" : "Auto-saved on this device"}
+            </span>
+          </div>
           <div className="mt-4 grid gap-4">
             <Field label="Alias"><input value={state.alias} onChange={e => setState(s => ({ ...s, alias: e.target.value }))} /></Field>
             <Field label="Assistant tone">
