@@ -1,18 +1,17 @@
-// Helpers for linking out to the GenLayer Studionet block explorer.
+// In-app transaction view URLs.
 //
-// Confirmed from `genlayer-js`'s studionet chain definition:
-//   blockExplorers.default.url = "https://genlayer-explorer.vercel.app"
-// The Studio at studio.genlayer.com is the IDE/playground, not the
-// transaction explorer.
-
-const EXPLORER_BASE = "https://genlayer-explorer.vercel.app";
+// GenLayer's external Studionet explorers are currently down
+// (genlayer-explorer.vercel.app: 503 DEPLOYMENT_PAUSED, explorer.genlayer.com:
+// 521). Rather than ship dead links, the activity feed points at an
+// internal /tx/<hash> page that reads the receipt directly from Studionet
+// via /api/tx/<hash>. This always works as long as the chain is up.
 
 export function explorerTxUrl(hash: string): string {
-  return `${EXPLORER_BASE}/tx/${hash}`;
+  return `/tx/${hash}`;
 }
 
 export function explorerAddressUrl(address: string): string {
-  return `${EXPLORER_BASE}/address/${address}`;
+  return `/tx/${address}`;
 }
 
 export function shortHash(hash: string): string {
