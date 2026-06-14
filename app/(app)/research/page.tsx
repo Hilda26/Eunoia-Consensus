@@ -6,6 +6,7 @@ import { useReviewer } from "@/hooks/useReviewer";
 import { shortId } from "@/lib/utils/format";
 import type { ConsentRequest } from "@/types";
 import { reviewConsent } from "@/lib/eunoia/agentCoordinator";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const ALLOWED_FIELDS = ["sleep score range", "stress score range", "mood score range", "energy score range", "goal completion count", "tag frequencies"];
 const NEVER_FIELDS = ["journal text", "name", "email", "exact location", "therapy notes", "medical records"];
@@ -99,10 +100,7 @@ export default function ResearchPage() {
                 {c.review ? (
                   <Badge tone={c.review.status === "CLEAR" ? "ok" : c.review.status === "REJECTED" ? "danger" : "warn"}>{c.review.status} · privacy {c.review.privacyRisk}</Badge>
                 ) : pendingIds.has(c.id) ? (
-                  <span className="text-xs text-muted flex items-center gap-2">
-                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
-                    review pending
-                  </span>
+                  <PendingPulse label="review pending" />
                 ) : null}
               </div>
               {c.review && <p className="text-sm mt-2">{c.review.requiredUserSummary}</p>}

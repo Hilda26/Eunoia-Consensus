@@ -6,6 +6,7 @@ import { useReviewer } from "@/hooks/useReviewer";
 import { shortId, userHashFromAlias } from "@/lib/utils/format";
 import { reviewReply } from "@/lib/eunoia/agentCoordinator";
 import type { SupportReply } from "@/types";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const CIRCLES = [
   { id: "student-burnout", name: "Student Burnout" },
@@ -88,10 +89,7 @@ export default function CirclesPage() {
                     {r.review.qualityBadge && <Badge tone="accent">support quality</Badge>}
                   </div>
                 ) : pendingIds.has(r.id) ? (
-                  <span className="text-xs text-muted flex items-center gap-2">
-                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
-                    review pending
-                  </span>
+                  <PendingPulse label="review pending" />
                 ) : null}
               </div>
               {!r.review ? (

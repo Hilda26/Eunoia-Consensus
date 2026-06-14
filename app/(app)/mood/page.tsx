@@ -10,6 +10,7 @@ import { reviewWellness } from "@/lib/eunoia/agentCoordinator";
 import { detectCrisisLanguage, getSafetyResponse } from "@/lib/eunoia/safety";
 import { riskTone } from "@/lib/genlayer/consensusMapper";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const TAGS = ["work", "school", "family", "money", "relationships", "health", "burnout", "sleep", "loneliness", "overthinking", "recovery"];
 
@@ -104,9 +105,9 @@ export default function MoodPage() {
         <Card>
           <SectionLabel number="02 /" label="Latest reflection" />
           {reviewPending && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-muted">
-              <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
-              Reflecting on your signals - usually ~1 minute. You can keep using the app.
+            <div className="mt-3">
+              <PendingPulse label="Reflecting on your signals" />
+              <p className="text-xs text-muted mt-1">Usually ~1 minute. You can keep using the app.</p>
             </div>
           )}
           {lastReview ? (

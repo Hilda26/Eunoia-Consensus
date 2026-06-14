@@ -6,6 +6,7 @@ import { useReviewer } from "@/hooks/useReviewer";
 import { avg, userHashFromAlias } from "@/lib/utils/format";
 import { reviewCheckin } from "@/lib/eunoia/agentCoordinator";
 import { ASSISTANT_DISCLAIMER, detectCrisisLanguage, getSafetyResponse } from "@/lib/eunoia/safety";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const ACTIONS = [
   { id: "reset", title: "Generate 5-minute reset plan", template: (tone: string) =>
@@ -100,10 +101,9 @@ export default function CheckinPage() {
               <Badge tone="info">{trigger.reason}</Badge>
             </div>
           ) : busy ? (
-            <p className="text-xs text-muted mt-3 flex items-center gap-2">
-              <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
-              GenLayer is shaping the tone of this reflection - ~1 minute.
-            </p>
+            <div className="mt-3">
+              <PendingPulse label="GenLayer shaping the tone" />
+            </div>
           ) : null}
           <pre className="whitespace-pre-wrap text-sm mt-4 font-body">{response}</pre>
           <p className="text-xs text-muted mt-4">{ASSISTANT_DISCLAIMER}</p>

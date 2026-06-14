@@ -7,6 +7,7 @@ import { shortId, userHashFromAlias } from "@/lib/utils/format";
 import type { Commitment, PermissionLevel } from "@/types";
 import { reviewGoal } from "@/lib/eunoia/agentCoordinator";
 import { makeEvent, pushEvent } from "@/lib/eunoia/eventEngine";
+import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const CATEGORIES = ["meditation", "journaling", "sleep", "walking", "hydration", "therapy reminder", "breathing exercise", "support check-in", "screen-time reduction"];
 
@@ -134,12 +135,7 @@ export default function CommitmentsPage() {
                   <span>Checklist completed</span>
                 </label>
                 <Button onClick={() => submitEvidence(c)}>Submit evidence for GenLayer review</Button>
-                {pendingReview[c.id] && (
-                  <p className="text-xs text-muted flex items-center gap-2">
-                    <span className="inline-block h-2 w-2 rounded-full bg-clay animate-pulse" />
-                    GenLayer is reviewing this - usually ~1 minute.
-                  </p>
-                )}
+                {pendingReview[c.id] && <PendingPulse label="GenLayer reviewing" />}
               </div>
 
               {c.lastReview && (
