@@ -1,11 +1,13 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, Button, SectionLabel, Badge, Field } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { shortId, userHashFromAlias } from "@/lib/utils/format";
-import { reviewReply } from "@/lib/eunoia/agentCoordinator";
-import type { SupportReply } from "@/types";
+import { submitReply, resolveReply } from "@/lib/eunoia/agentCoordinator";
+import type { SupportReply, ReplyReview } from "@/types";
+import { addPending, type Pending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const CIRCLES = [
@@ -22,34 +24,38 @@ export default function CirclesPage() {
   const { reviewer } = useReviewer();
   const [circle, setCircle] = useState(CIRCLES[0].id);
   const [text, setText] = useState("");
-  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
-  // The reply is posted locally and shown as "pending review" immediately;
-  // GenLayer classification streams in 30-120s later and swaps the pill.
+  const onResolved = useCallback((p: Pending, review: ReplyReview) => {
+    setState(s => ({
+      ...s,
+      replies: s.replies.map(r => r.id === p.targetId ? { ...r, review } : r),
+      events: resolveReply(p.hash, review, s.events)
+    }));
+  }, [setState]);
+  const pending = usePendingReviews("reply", onResolved);
+  const pendingByReply: Record<string, Pending> = {};
+  for (const p of pending) if (p.targetId) pendingByReply[p.targetId] = p;
+
+  // Reply posts locally + queues the review. Refreshing or closing the
+  // tab keeps the review running and resumes when the verdict lands.
   function submit() {
     if (!text.trim() || !reviewer) return;
     const replyText = text;
     const reply: SupportReply = { id: shortId("reply"), ts: Date.now(), circle, alias: state.alias, text: replyText };
     setState(s => ({ ...s, replies: [reply, ...s.replies] }));
     setText("");
-    setPendingIds(p => new Set(p).add(reply.id));
     (async () => {
       try {
-        const { review, events } = await reviewReply(reviewer, {
+        const { hash, events } = await submitReply(reviewer, {
           userHash: userHashFromAlias(state.alias),
           circleAlias: state.alias,
           replyText,
           events: state.events
         });
-        setState(s => ({
-          ...s,
-          replies: s.replies.map(r => r.id === reply.id ? { ...r, review } : r),
-          events
-        }));
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "reply", targetId: reply.id });
       } catch {
         // soft fail - reply stays in pending state visually
-      } finally {
-        setPendingIds(p => { const n = new Set(p); n.delete(reply.id); return n; });
       }
     })();
   }
@@ -88,8 +94,8 @@ export default function CirclesPage() {
                     <Badge tone={r.review.visible ? "ok" : "warn"}>{r.review.classification}</Badge>
                     {r.review.qualityBadge && <Badge tone="accent">support quality</Badge>}
                   </div>
-                ) : pendingIds.has(r.id) ? (
-                  <PendingPulse label="review pending" />
+                ) : pendingByReply[r.id] ? (
+                  <PendingPulse label="review pending" since={pendingByReply[r.id].startedAt} />
                 ) : null}
               </div>
               {!r.review ? (

@@ -2,14 +2,17 @@
 import { useEffect, useState } from "react";
 
 // Live "label · m:ss" counter shown while a GenLayer review is in flight.
-// Resets to 0 on mount, so the parent just conditionally renders this when
-// the call is pending and removes it when the verdict lands.
-export function PendingPulse({ label }: { label: string }) {
-  const [seconds, setSeconds] = useState(0);
+// Pass `since` (ms epoch) when the pending review was first submitted so the
+// counter resumes from the real elapsed time after a page refresh.
+export function PendingPulse({ label, since }: { label: string; since?: number }) {
+  const start = since ?? Date.now();
+  const [seconds, setSeconds] = useState(() => Math.max(0, Math.floor((Date.now() - start) / 1000)));
   useEffect(() => {
-    const t = setInterval(() => setSeconds(s => s + 1), 1000);
+    const tick = () => setSeconds(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    tick();
+    const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [start]);
   const mm = Math.floor(seconds / 60);
   const ss = String(seconds % 60).padStart(2, "0");
   return (

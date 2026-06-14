@@ -1,12 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, Button, SectionLabel, Field, Badge } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { shortId, userHashFromAlias } from "@/lib/utils/format";
-import type { Commitment, PermissionLevel } from "@/types";
-import { reviewGoal } from "@/lib/eunoia/agentCoordinator";
+import type { Commitment, PermissionLevel, GoalReview } from "@/types";
+import { submitGoal, resolveGoal } from "@/lib/eunoia/agentCoordinator";
 import { makeEvent, pushEvent } from "@/lib/eunoia/eventEngine";
+import { addPending, type Pending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const CATEGORIES = ["meditation", "journaling", "sleep", "walking", "hydration", "therapy reminder", "breathing exercise", "support check-in", "screen-time reduction"];
@@ -16,7 +18,19 @@ export default function CommitmentsPage() {
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ title: "", category: "journaling", frequency: "weekly" as const, target: 3, privacy: "GENLAYER_REVIEW_ONLY" as PermissionLevel, evidenceType: "checklist" as const });
   const [evidence, setEvidence] = useState<Record<string, { summary: string; checklist: boolean }>>({});
-  const [pendingReview, setPendingReview] = useState<Record<string, boolean>>({});
+
+  // When a verdict for a specific commitment lands, attach it.
+  const onResolved = useCallback((p: Pending, review: GoalReview) => {
+    setState(s => ({
+      ...s,
+      commitments: s.commitments.map(x => x.id === p.targetId ? { ...x, lastReview: review } : x),
+      events: resolveGoal(p.hash, review, s.events)
+    }));
+  }, [setState]);
+  const pending = usePendingReviews("goal", onResolved);
+  // index pending review by commitment id for quick lookup in render
+  const pendingByCommitment: Record<string, Pending> = {};
+  for (const p of pending) if (p.targetId) pendingByCommitment[p.targetId] = p;
 
   function create() {
     if (!form.title.trim()) return;
@@ -34,9 +48,9 @@ export default function CommitmentsPage() {
     setForm({ ...form, title: "" });
   }
 
-  // Local progress increments instantly. The GenLayer review runs in the
-  // background (Studionet consensus is 30-120s) - we surface a "reviewing"
-  // pill on the card and swap in the verdict when it lands.
+  // Local progress increments instantly. The GenLayer review is submitted
+  // and tracked via the pending list, so refreshing the tab keeps the
+  // verdict coming. Studionet consensus is 30-120 s.
   function submitEvidence(c: Commitment) {
     const e = evidence[c.id] || { summary: "", checklist: false };
     const newClaimed = Math.min(c.target, c.claimedCount + 1);
@@ -46,25 +60,19 @@ export default function CommitmentsPage() {
       events: pushEvent(s.events, makeEvent("GOAL_EVIDENCE_SUBMITTED", `evidence saved for "${c.title}"`, { tone: "info" }))
     }));
     if (!reviewer) return;
-    setPendingReview(p => ({ ...p, [c.id]: true }));
     (async () => {
       try {
-        const { review, events } = await reviewGoal(reviewer, {
+        const { hash, events } = await submitGoal(reviewer, {
           userHash: userHashFromAlias(state.alias),
           goalTitle: c.title, goalCategory: c.category,
           targetCount: c.target, claimedCount: newClaimed,
           evidenceSummary: e.summary, checklistCompleted: e.checklist,
           events: state.events
         });
-        setState(s => ({
-          ...s,
-          commitments: s.commitments.map(x => x.id === c.id ? { ...x, lastReview: review } : x),
-          events
-        }));
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "goal", targetId: c.id });
       } catch {
         // soft fail - progress is already saved locally
-      } finally {
-        setPendingReview(p => ({ ...p, [c.id]: false }));
       }
     })();
   }
@@ -135,7 +143,9 @@ export default function CommitmentsPage() {
                   <span>Checklist completed</span>
                 </label>
                 <Button onClick={() => submitEvidence(c)}>Submit evidence for GenLayer review</Button>
-                {pendingReview[c.id] && <PendingPulse label="GenLayer reviewing" />}
+                {pendingByCommitment[c.id] && (
+                  <PendingPulse label="GenLayer reviewing" since={pendingByCommitment[c.id].startedAt} />
+                )}
               </div>
 
               {c.lastReview && (

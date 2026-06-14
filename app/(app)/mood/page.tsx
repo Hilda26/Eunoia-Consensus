@@ -1,12 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, Button, SectionLabel, Field, Badge } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { shortId } from "@/lib/utils/format";
-import type { MoodLog } from "@/types";
+import type { MoodLog, WellnessReview } from "@/types";
 import { makeEvent, pushEvent } from "@/lib/eunoia/eventEngine";
-import { reviewWellness } from "@/lib/eunoia/agentCoordinator";
+import { submitWellness, resolveWellness } from "@/lib/eunoia/agentCoordinator";
+import { addPending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { detectCrisisLanguage, getSafetyResponse } from "@/lib/eunoia/safety";
 import { riskTone } from "@/lib/genlayer/consensusMapper";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
@@ -21,25 +23,38 @@ export default function MoodPage() {
   const [crisis, setCrisis] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [reviewPending, setReviewPending] = useState(false);
-  const [lastReview, setLastReview] = useState(state.lastWellnessReview ?? null);
+  const lastReview = state.lastWellnessReview ?? null;
+
+  // Whenever a pending wellness review's verdict lands (could be on
+  // first arrival, or after a refresh-resume), apply it to state.
+  const onResolved = useCallback((p: { hash: string }, verdict: WellnessReview) => {
+    setState(s => ({
+      ...s,
+      lastWellnessReview: verdict,
+      events: resolveWellness(p.hash, verdict, s.events)
+    }));
+  }, [setState]);
+  const pending = usePendingReviews("wellness", onResolved);
 
   function toggleTag(t: string) {
     setForm(f => ({ ...f, tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t] }));
   }
 
-  // The local save is instant; the GenLayer review is kicked off in the
-  // background because Studionet consensus takes 30-120s and blocking the
-  // form on it makes the UI feel broken. Submitting again while a prior
-  // review is still in flight is fine - the local log saves immediately
-  // and the latest verdict to land wins.
+  // Local save is instant; the GenLayer review is submitted in the
+  // background. Once the tx hash comes back we persist it to the pending
+  // list (localStorage). A refresh - or even closing the tab and coming
+  // back later within 15 min - will resume polling and apply the verdict
+  // when it lands. Studionet consensus takes 30-120 s.
   function submit() {
     if (detectCrisisLanguage(form.note)) { setCrisis(true); return; }
     setError(null);
     const log: MoodLog = { id: shortId("mood"), ts: Date.now(), ...form };
     const logs = [...state.moodLogs, log];
-    const events = pushEvent(state.events, makeEvent("MOOD_SIGNAL_CREATED", "local private signal saved", { tone: "info" }));
-    setState(s => ({ ...s, moodLogs: logs, events }));
+    setState(s => ({
+      ...s,
+      moodLogs: logs,
+      events: pushEvent(s.events, makeEvent("MOOD_SIGNAL_CREATED", "local private signal saved", { tone: "info" }))
+    }));
     setForm({ mood: 6, stress: 5, anxiety: 4, energy: 6, sleep: 6, note: "", tags: [] });
     setSavedFlash(true);
     setTimeout(() => setSavedFlash(false), 2500);
@@ -48,16 +63,13 @@ export default function MoodPage() {
       setError("Not signed in. Your log was saved on this device.");
       return;
     }
-    setReviewPending(true);
     (async () => {
       try {
-        const { review, events: ev2 } = await reviewWellness(reviewer, { alias: state.alias, logs, commitments: state.commitments, permissions: state.permissions, events });
-        setLastReview(review);
-        setState(s => ({ ...s, lastWellnessReview: review, events: ev2 }));
+        const { hash, events } = await submitWellness(reviewer, { alias: state.alias, logs, commitments: state.commitments, permissions: state.permissions, events: state.events });
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "wellness" });
       } catch (e: any) {
-        setError("Reflection could not be generated this time. Your log is safe on this device.");
-      } finally {
-        setReviewPending(false);
+        setError("Could not start the review this time. Your log is safe on this device.");
       }
     })();
   }
@@ -104,10 +116,10 @@ export default function MoodPage() {
 
         <Card>
           <SectionLabel number="02 /" label="Latest reflection" />
-          {reviewPending && (
+          {pending.length > 0 && (
             <div className="mt-3">
-              <PendingPulse label="Reflecting on your signals" />
-              <p className="text-xs text-muted mt-1">Usually ~1 minute. You can keep using the app.</p>
+              <PendingPulse label="Reflecting on your signals" since={pending[0].startedAt} />
+              <p className="text-xs text-muted mt-1">Usually ~1 minute. Refreshing or closing the tab is safe - the review will keep running on-chain and land here when it is ready.</p>
             </div>
           )}
           {lastReview ? (

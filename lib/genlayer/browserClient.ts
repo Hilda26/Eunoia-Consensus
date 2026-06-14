@@ -1,15 +1,13 @@
-// Browser-side review client.
+// Browser-side review submission client.
 //
-// Studionet transactions cannot be signed through Privy's EIP-1193 provider
-// (GenLayer uses a custom tx encoding via gen_sendRawTransaction, not the
-// standard EVM dialect Privy speaks). So instead of signing in the browser
-// we POST the review request to /api/review, which verifies the Privy
-// access token and signs with a server-side GenLayer key.
-//
-// The Reviewer interface stays identical to what agentCoordinator expects.
+// Studionet transactions cannot be signed through Privy's EIP-1193 provider,
+// so we POST to /api/review which signs with a server-side GenLayer key.
+// The API returns the tx hash immediately - the verdict is read later by
+// polling /api/tx/<hash>. The Pending list in localStorage + the
+// usePendingReviews hook own that polling so submissions survive refresh.
 
 import type {
-  SignalBundle, WellnessReview, GoalReview, ReplyReview, ConsentReview, CheckinReview
+  SignalBundle
 } from "@/types";
 import type {
   GoalEvidenceInput, ReplyReviewInput, ConsentRequestInput, CheckinSignalInput
@@ -17,12 +15,17 @@ import type {
 
 type TokenFetcher = () => Promise<string | null>;
 
-export type ReviewWithTx<T> = { result: T; hash: string };
+export type ReviewMethod =
+  | "review_wellness_signal"
+  | "review_goal_accountability"
+  | "review_support_reply"
+  | "review_research_consent"
+  | "review_checkin_trigger";
 
 export type Reviewer = ReturnType<typeof makeReviewer>;
 
 export function makeReviewer(getAccessToken: TokenFetcher) {
-  async function call<T>(method: string, payload: unknown): Promise<ReviewWithTx<T>> {
+  async function submit(method: ReviewMethod, payload: unknown): Promise<{ hash: string }> {
     const token = await getAccessToken();
     if (!token) throw new Error("Not signed in - sign in to submit a review.");
     const res = await fetch("/api/review", {
@@ -31,21 +34,21 @@ export function makeReviewer(getAccessToken: TokenFetcher) {
       body: JSON.stringify({ method, payload })
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) {
+    if (!res.ok || !data?.ok || !data?.hash) {
       throw new Error(data?.error || `review service returned ${res.status}`);
     }
-    return { result: data.verdict as T, hash: String(data.hash || "") };
+    return { hash: String(data.hash) };
   }
   return {
-    reviewWellnessSignal: (bundle: SignalBundle): Promise<ReviewWithTx<WellnessReview>> =>
-      call("review_wellness_signal", bundle),
-    reviewGoalAccountability: (input: GoalEvidenceInput): Promise<ReviewWithTx<GoalReview>> =>
-      call("review_goal_accountability", input),
-    reviewSupportReply: (input: ReplyReviewInput): Promise<ReviewWithTx<ReplyReview>> =>
-      call("review_support_reply", input),
-    reviewResearchConsent: (input: ConsentRequestInput): Promise<ReviewWithTx<ConsentReview>> =>
-      call("review_research_consent", input),
-    reviewCheckinTrigger: (input: CheckinSignalInput): Promise<ReviewWithTx<CheckinReview>> =>
-      call("review_checkin_trigger", input)
+    submitWellnessSignal: (bundle: SignalBundle) =>
+      submit("review_wellness_signal", bundle),
+    submitGoalAccountability: (input: GoalEvidenceInput) =>
+      submit("review_goal_accountability", input),
+    submitSupportReply: (input: ReplyReviewInput) =>
+      submit("review_support_reply", input),
+    submitResearchConsent: (input: ConsentRequestInput) =>
+      submit("review_research_consent", input),
+    submitCheckinTrigger: (input: CheckinSignalInput) =>
+      submit("review_checkin_trigger", input)
   };
 }

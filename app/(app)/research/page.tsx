@@ -1,11 +1,13 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, SectionLabel, Button, Field, Badge } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { shortId } from "@/lib/utils/format";
-import type { ConsentRequest } from "@/types";
-import { reviewConsent } from "@/lib/eunoia/agentCoordinator";
+import type { ConsentRequest, ConsentReview } from "@/types";
+import { submitConsent, resolveConsent } from "@/lib/eunoia/agentCoordinator";
+import { addPending, type Pending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const ALLOWED_FIELDS = ["sleep score range", "stress score range", "mood score range", "energy score range", "goal completion count", "tag frequencies"];
@@ -15,8 +17,18 @@ export default function ResearchPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
   const [form, setForm] = useState({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [] as string[], revocable: true });
-  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
+
+  const onResolved = useCallback((p: Pending, review: ConsentReview) => {
+    setState(s => ({
+      ...s,
+      consents: s.consents.map(c => c.id === p.targetId ? { ...c, review, active: review.status === "CLEAR" } : c),
+      events: resolveConsent(p.hash, review, s.events)
+    }));
+  }, [setState]);
+  const pending = usePendingReviews("consent", onResolved);
+  const pendingByConsent: Record<string, Pending> = {};
+  for (const p of pending) if (p.targetId) pendingByConsent[p.targetId] = p;
 
   function toggleField(f: string) {
     setForm(s => ({ ...s, dataRequested: s.dataRequested.includes(f) ? s.dataRequested.filter(x => x !== f) : [...s.dataRequested, f] }));
@@ -37,24 +49,18 @@ export default function ResearchPage() {
     };
     setState(s => ({ ...s, consents: [req, ...s.consents] }));
     setForm({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [], revocable: true });
-    setPendingIds(p => new Set(p).add(req.id));
     (async () => {
       try {
-        const { review, events } = await reviewConsent(reviewer, {
+        const { hash, events } = await submitConsent(reviewer, {
           title: snapshot.title, requestingEntity: snapshot.requestingEntity,
           dataRequested: snapshot.dataRequested, dataNotRequested: NEVER_FIELDS,
           durationDays: snapshot.durationDays, revocable: snapshot.revocable,
           events: state.events
         });
-        setState(s => ({
-          ...s,
-          consents: s.consents.map(c => c.id === req.id ? { ...c, review, active: review.status === "CLEAR" } : c),
-          events
-        }));
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "consent", targetId: req.id });
       } catch {
-        // soft fail - request stays visible in pending state
-      } finally {
-        setPendingIds(p => { const n = new Set(p); n.delete(req.id); return n; });
+        // soft fail - request stays in pending state
       }
     })();
   }
@@ -104,8 +110,8 @@ export default function ResearchPage() {
                 <span className="font-head text-base">{c.title}</span>
                 {c.review ? (
                   <Badge tone={c.review.status === "CLEAR" ? "ok" : c.review.status === "REJECTED" ? "danger" : "warn"}>{c.review.status} · privacy {c.review.privacyRisk}</Badge>
-                ) : pendingIds.has(c.id) ? (
-                  <PendingPulse label="review pending" />
+                ) : pendingByConsent[c.id] ? (
+                  <PendingPulse label="review pending" since={pendingByConsent[c.id].startedAt} />
                 ) : null}
               </div>
               {c.review && <p className="text-sm mt-2">{c.review.requiredUserSummary}</p>}

@@ -1,11 +1,14 @@
 "use client";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, SectionLabel, Badge, Button } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { avg } from "@/lib/utils/format";
 import { riskTone } from "@/lib/genlayer/consensusMapper";
-import { reviewWellness } from "@/lib/eunoia/agentCoordinator";
-import { useState } from "react";
+import { submitWellness, resolveWellness } from "@/lib/eunoia/agentCoordinator";
+import type { WellnessReview } from "@/types";
+import { addPending, type Pending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { PendingPulse } from "@/components/ui/PendingPulse";
 
 const RECOMMENDED = ["5-minute breathing reset", "protect sleep window", "reduce one non-urgent task", "message support circle", "prepare therapy notes"];
@@ -13,7 +16,6 @@ const RECOMMENDED = ["5-minute breathing reset", "protect sleep window", "reduce
 export default function RiskPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recent = state.moodLogs.slice(-4);
   const moodAvg = avg(recent.map(l => l.mood));
@@ -22,17 +24,32 @@ export default function RiskPage() {
   const energyAvg = avg(recent.map(l => l.energy));
   const review = state.lastWellnessReview;
 
-  async function refresh() {
+  // Wellness pending reviews surface here too - same kind as Mood Signals,
+  // so the indicator updates when the verdict lands no matter which tab
+  // the user submitted from or whether they refreshed in between.
+  const onResolved = useCallback((p: Pending, verdict: WellnessReview) => {
+    setState(s => ({
+      ...s,
+      lastWellnessReview: verdict,
+      events: resolveWellness(p.hash, verdict, s.events)
+    }));
+  }, [setState]);
+  const pending = usePendingReviews("wellness", onResolved);
+  const refreshing = pending[0];
+
+  function refresh() {
     setError(null);
     if (!reviewer) { setError("Not signed in - reload the page and sign in."); return; }
     if (!state.moodLogs.length) { setError("Log a mood entry first - the indicator needs at least one signal."); return; }
-    setBusy(true);
-    try {
-      const { review, events } = await reviewWellness(reviewer, { alias: state.alias, logs: state.moodLogs, commitments: state.commitments, permissions: state.permissions, events: state.events });
-      setState(s => ({ ...s, lastWellnessReview: review, events }));
-    } catch (e: any) {
-      setError("Could not refresh the indicator this time. Your latest signals are safe on this device.");
-    } finally { setBusy(false); }
+    (async () => {
+      try {
+        const { hash, events } = await submitWellness(reviewer, { alias: state.alias, logs: state.moodLogs, commitments: state.commitments, permissions: state.permissions, events: state.events });
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "wellness" });
+      } catch {
+        setError("Could not start the review this time. Your latest signals are safe on this device.");
+      }
+    })();
   }
 
   return (
@@ -46,8 +63,8 @@ export default function RiskPage() {
             <span className="font-head text-6xl">{review?.riskLevel ?? "STEADY"}</span>
             <Badge tone={riskTone(review?.riskLevel ?? "STEADY")}>score {review?.score ?? 0}</Badge>
             <p className="text-xs text-muted">Your wellness risk indicator is {review?.riskLevel?.toLowerCase() ?? "steady"}.</p>
-            <Button onClick={refresh} disabled={busy}>Refresh from latest signals</Button>
-            {busy && <PendingPulse label="Refreshing your indicator" />}
+            <Button onClick={refresh}>Refresh from latest signals</Button>
+            {refreshing && <PendingPulse label="Refreshing your indicator" since={refreshing.startedAt} />}
             {error && <p className="text-xs text-danger">{error}</p>}
           </div>
         </Card>

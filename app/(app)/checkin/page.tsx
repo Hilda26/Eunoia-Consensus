@@ -1,10 +1,13 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ModuleHeader, Card, SectionLabel, Button, Badge } from "@/components/ui/Primitives";
 import { useStore } from "@/hooks/useStore";
 import { useReviewer } from "@/hooks/useReviewer";
 import { avg, userHashFromAlias } from "@/lib/utils/format";
-import { reviewCheckin } from "@/lib/eunoia/agentCoordinator";
+import { submitCheckin, resolveCheckin } from "@/lib/eunoia/agentCoordinator";
+import type { CheckinReview } from "@/types";
+import { addPending, type Pending } from "@/lib/eunoia/pendingReviews";
+import { usePendingReviews } from "@/hooks/usePendingReviews";
 import { ASSISTANT_DISCLAIMER, detectCrisisLanguage, getSafetyResponse } from "@/lib/eunoia/safety";
 import { PendingPulse } from "@/components/ui/PendingPulse";
 
@@ -22,17 +25,27 @@ const ACTIONS = [
 ];
 
 export default function CheckinPage() {
-  const { state } = useStore();
+  const { state, setState } = useStore();
   const { reviewer } = useReviewer();
   const [active, setActive] = useState<string | null>(null);
   const [response, setResponse] = useState("");
   const [trigger, setTrigger] = useState<null | { tone: string; reason: string; prompt: string }>(null);
-  const [busy, setBusy] = useState(false);
   const [crisis, setCrisis] = useState(false);
 
-  // The deterministic template renders immediately so the user sees the
-  // check-in surface right away. The GenLayer tone/reason verdict streams
-  // in 30-120s later and refines the badges and template tone.
+  // When the check-in verdict eventually lands (could be after a refresh),
+  // re-render the active template in the verdict's tone and show the
+  // tone/reason badges.
+  const onResolved = useCallback((p: Pending, review: CheckinReview) => {
+    const a = ACTIONS.find(x => x.id === p.meta?.actionId);
+    if (a) setResponse(a.template(review.tone));
+    setTrigger({ tone: review.tone, reason: review.reason, prompt: review.checkinPrompt });
+    setState(s => ({ ...s, events: resolveCheckin(p.hash, review, s.events) }));
+  }, [setState]);
+  const pending = usePendingReviews("checkin", onResolved);
+  const currentPending = pending[0]; // checkins are global, not per-target
+
+  // The deterministic template renders immediately; the GenLayer verdict
+  // refines tone + badges when it lands. Refresh-safe via pending list.
   function runAction(id: string) {
     const a = ACTIONS.find(x => x.id === id);
     if (!a) return;
@@ -40,11 +53,10 @@ export default function CheckinPage() {
     setTrigger(null);
     setResponse(a.template(state.assistantTone));
     if (!reviewer) return;
-    setBusy(true);
     const recent = state.moodLogs.slice(-4);
     (async () => {
       try {
-        const r = await reviewCheckin(reviewer, {
+        const { hash, events } = await submitCheckin(reviewer, {
           userHash: userHashFromAlias(state.alias),
           riskLevel: state.lastWellnessReview?.riskLevel ?? "WATCH",
           recentMoodAvg: avg(recent.map(l => l.mood)),
@@ -53,12 +65,10 @@ export default function CheckinPage() {
           preferredTone: state.assistantTone,
           events: state.events
         });
-        setTrigger({ tone: r.review.tone, reason: r.review.reason, prompt: r.review.checkinPrompt });
-        setResponse(a.template(r.review.tone));
+        setState(s => ({ ...s, events }));
+        addPending({ hash, startedAt: Date.now(), kind: "checkin", meta: { actionId: id } });
       } catch {
         // soft fail - template above already renders
-      } finally {
-        setBusy(false);
       }
     })();
   }
@@ -100,9 +110,9 @@ export default function CheckinPage() {
               <Badge tone="accent">tone: {trigger.tone}</Badge>
               <Badge tone="info">{trigger.reason}</Badge>
             </div>
-          ) : busy ? (
+          ) : currentPending ? (
             <div className="mt-3">
-              <PendingPulse label="GenLayer shaping the tone" />
+              <PendingPulse label="GenLayer shaping the tone" since={currentPending.startedAt} />
             </div>
           ) : null}
           <pre className="whitespace-pre-wrap text-sm mt-4 font-body">{response}</pre>
