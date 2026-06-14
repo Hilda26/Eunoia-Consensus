@@ -1,13 +1,18 @@
-// Helpers for linking out to the GenLayer Studio explorer.
+// Helpers for linking out to the GenLayer Studionet block explorer.
+//
+// Confirmed from `genlayer-js`'s studionet chain definition:
+//   blockExplorers.default.url = "https://genlayer-explorer.vercel.app"
+// The Studio at studio.genlayer.com is the IDE/playground, not the
+// transaction explorer.
 
-const STUDIO_BASE = "https://studio.genlayer.com";
+const EXPLORER_BASE = "https://genlayer-explorer.vercel.app";
 
 export function explorerTxUrl(hash: string): string {
-  return `${STUDIO_BASE}/tx/${hash}`;
+  return `${EXPLORER_BASE}/tx/${hash}`;
 }
 
 export function explorerAddressUrl(address: string): string {
-  return `${STUDIO_BASE}/address/${address}`;
+  return `${EXPLORER_BASE}/address/${address}`;
 }
 
 export function shortHash(hash: string): string {
