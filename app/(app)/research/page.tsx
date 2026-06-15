@@ -16,7 +16,7 @@ const NEVER_FIELDS = ["journal text", "name", "email", "exact location", "therap
 export default function ResearchPage() {
   const { state, setState } = useStore();
   const { reviewer } = useReviewer();
-  const [form, setForm] = useState({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [] as string[], revocable: true });
+  const [form, setForm] = useState({ title: "", requestingEntity: "", durationDays: 30, dataRequested: [] as string[], revocable: true });
   const [formError, setFormError] = useState<string | null>(null);
 
   const onResolved = useCallback((p: Pending, review: ConsentReview) => {
@@ -37,6 +37,7 @@ export default function ResearchPage() {
   function submit() {
     setFormError(null);
     if (!form.title.trim()) { setFormError("Add a title for this request."); return; }
+    if (!form.requestingEntity.trim()) { setFormError("Add who or what is requesting this data."); return; }
     if (!form.dataRequested.length) { setFormError("Pick at least one data field to request."); return; }
     if (!reviewer) { setFormError("Not signed in - reload the page and sign in."); return; }
     const snapshot = { ...form };
@@ -48,7 +49,7 @@ export default function ResearchPage() {
       active: false
     };
     setState(s => ({ ...s, consents: [req, ...s.consents] }));
-    setForm({ title: "", requestingEntity: "Not connected", durationDays: 30, dataRequested: [], revocable: true });
+    setForm({ title: "", requestingEntity: "", durationDays: 30, dataRequested: [], revocable: true });
     (async () => {
       try {
         const { hash, events } = await submitConsent(reviewer, {
@@ -77,7 +78,7 @@ export default function ResearchPage() {
         <SectionLabel number="01 /" label="Build a request" />
         <div className="grid gap-4 sm:grid-cols-2 mt-4">
           <Field label="Title"><input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Sleep and Stress Pattern Review" /></Field>
-          <Field label="Requesting entity"><input value={form.requestingEntity} onChange={e => setForm({ ...form, requestingEntity: e.target.value })} /></Field>
+          <Field label="Requesting entity"><input value={form.requestingEntity} onChange={e => setForm({ ...form, requestingEntity: e.target.value })} placeholder="e.g. University Sleep Study" /></Field>
           <Field label="Duration (days)"><input type="number" min={1} max={365} value={form.durationDays} onChange={e => setForm({ ...form, durationDays: Number(e.target.value) })} /></Field>
           <Field label="Revocable">
             <select value={String(form.revocable)} onChange={e => setForm({ ...form, revocable: e.target.value === "true" })}>
