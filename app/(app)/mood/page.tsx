@@ -13,6 +13,7 @@ import { detectCrisisLanguage, getSafetyResponse } from "@/lib/eunoia/safety";
 import { riskTone } from "@/lib/genlayer/consensusMapper";
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { PendingPulse } from "@/components/ui/PendingPulse";
+import { NumberStepper } from "@/components/ui/NumberStepper";
 
 const TAGS = ["work", "school", "family", "money", "relationships", "health", "burnout", "sleep", "loneliness", "overthinking", "recovery"];
 
@@ -94,7 +95,7 @@ export default function MoodPage() {
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             {(["mood", "stress", "anxiety", "energy", "sleep"] as const).map(k => (
               <Field key={k} label={`${k} (1-10)`}>
-                <input type="number" min={1} max={10} value={(form as any)[k]} onChange={e => setForm({ ...form, [k]: Number(e.target.value) })} />
+                <NumberStepper value={(form as any)[k]} min={1} max={10} onChange={v => setForm({ ...form, [k]: v })} />
               </Field>
             ))}
             <Field label="Private note (stays on this device)">

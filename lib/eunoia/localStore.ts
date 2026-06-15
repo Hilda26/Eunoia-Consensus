@@ -4,7 +4,15 @@ import type {
   PermissionLevel, DataCategory, EunoiaEvent, WellnessReview
 } from "@/types";
 
-const KEY = "eunoia.state.v1";
+// Storage is scoped by Privy user id so two users on the same browser
+// (sequential sign-ins from different wallets) get isolated state -
+// signing in as a new user no longer reveals the prior user's alias,
+// mood logs, commitments, etc. Unauthenticated users fall back to a
+// shared "anon" key, mostly for SSR safety and the first paint.
+const KEY_PREFIX = "eunoia.state.v1";
+function keyFor(userId: string | null | undefined): string {
+  return `${KEY_PREFIX}.${userId || "anon"}`;
+}
 
 export interface EunoiaState {
   alias: string;
@@ -33,40 +41,59 @@ export const defaultPermissions: Record<DataCategory, PermissionLevel> = {
   COMMITMENT_HISTORY: "GENLAYER_REVIEW_ONLY"
 };
 
-export const initialState: EunoiaState = {
-  alias: "QuietOak",
-  assistantTone: "gentle",
-  consensusVisibility: "expanded",
-  privacyDefault: "GENLAYER_REVIEW_ONLY",
-  disclaimerAcknowledged: false,
-  moodLogs: [],
-  commitments: [],
-  replies: [],
-  consents: [],
-  events: [],
-  permissions: { ...defaultPermissions }
-};
+// Stable, calm default alias derived from the user id so two fresh
+// sign-ins don't both land on the same "QuietOak".
+const ADJECTIVES = ["Quiet", "Calm", "Soft", "Gentle", "Steady", "Warm", "Bright", "Pale"];
+const NOUNS = ["Oak", "Fern", "Reed", "Sage", "Pine", "Ivy", "Moss", "Dawn", "River", "Cedar"];
+function aliasFor(userId: string | null | undefined): string {
+  if (!userId) return "QuietOak";
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = ((h << 5) - h + userId.charCodeAt(i)) | 0;
+  const adj = ADJECTIVES[Math.abs(h) % ADJECTIVES.length];
+  const noun = NOUNS[Math.abs(h >> 8) % NOUNS.length];
+  return `${adj}${noun}`;
+}
 
-export function loadState(): EunoiaState {
-  if (typeof window === "undefined") return initialState;
+export function defaultStateFor(userId?: string | null): EunoiaState {
+  return {
+    alias: aliasFor(userId),
+    assistantTone: "gentle",
+    consensusVisibility: "expanded",
+    privacyDefault: "GENLAYER_REVIEW_ONLY",
+    disclaimerAcknowledged: false,
+    moodLogs: [],
+    commitments: [],
+    replies: [],
+    consents: [],
+    events: [],
+    permissions: { ...defaultPermissions }
+  };
+}
+
+// Kept for back-compat with code that imports initialState as a constant.
+export const initialState: EunoiaState = defaultStateFor(null);
+
+export function loadState(userId?: string | null): EunoiaState {
+  if (typeof window === "undefined") return defaultStateFor(userId);
   try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return initialState;
+    const raw = window.localStorage.getItem(keyFor(userId));
+    const base = defaultStateFor(userId);
+    if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<EunoiaState>;
-    return { ...initialState, ...parsed, permissions: { ...defaultPermissions, ...(parsed.permissions || {}) } };
+    return { ...base, ...parsed, permissions: { ...defaultPermissions, ...(parsed.permissions || {}) } };
   } catch {
-    return initialState;
+    return defaultStateFor(userId);
   }
 }
 
-export function saveState(s: EunoiaState) {
+export function saveState(s: EunoiaState, userId?: string | null) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEY, JSON.stringify(s));
+  window.localStorage.setItem(keyFor(userId), JSON.stringify(s));
 }
 
-export function resetState() {
+export function resetState(userId?: string | null) {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(KEY);
+  window.localStorage.removeItem(keyFor(userId));
 }
 
 export function exportStateJson(s: EunoiaState): string {
